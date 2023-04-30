@@ -94,8 +94,22 @@ def run_blackbox_attack(attack, data_loader, targeted, device, n_classes=4):
        case of targeted attacks.
     3- The number of queries made to create each adversarial example.
     """
-    pass  # FILL ME
-
+    all_x_adv = []
+    all_y = []
+    all_n_queries = []
+    for x, y in data_loader:
+        x, y = x.to(device), y.to(device)
+        if targeted:
+            t = (y + torch.randint(1, n_classes, size=(y.size(0),)).to(device)) % n_classes
+        else:
+            t = y
+        x_adv, n_queries = attack.execute(x, t, targeted=targeted)
+        all_x_adv.append(x_adv)
+        all_y.append(t)
+        all_n_queries.append(n_queries)
+    all_x_adv = torch.cat(all_x_adv)
+    all_y = torch.cat(all_y)
+    return all_x_adv, all_y, torch.FloatTensor(all_n_queries)
 
 def compute_attack_success(model, x_adv, y, batch_size, targeted, device):
     """
@@ -103,11 +117,21 @@ def compute_attack_success(model, x_adv, y, batch_size, targeted, device):
     attacks. y contains the true labels in case of untargeted attacks,
     and the target labels in case of targeted attacks.
     """
-    outputs = model(x_adv)
-    if targeted:
-        return (outputs.argmax(dim=1) == y).sum().item() / outputs.shape[0]
-    else:
-        return (outputs.argmax(dim=1) != y).sum().item() / outputs.shape[0]
+    model.eval()
+    n_correct = 0
+    for i in range(0, len(x_adv), batch_size):
+        x = x_adv[i:i+batch_size]
+        y_batch = y[i:i+batch_size]
+        with torch.no_grad():
+            y_pred = model(x)
+        y_pred = y_pred.argmax(dim=1)
+        if targeted:
+            n_correct += (y_pred == y_batch).float().sum().item()
+        else:
+            n_correct += (y_pred != y_batch).float().sum().item()
+    return n_correct / len(x_adv)
+
+
 
 
 def binary(num):
